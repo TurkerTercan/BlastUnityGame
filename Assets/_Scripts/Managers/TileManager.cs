@@ -37,6 +37,10 @@ public class TileManager : MonoBehaviourSingleton<TileManager>
     public Sprite[][] spriteContainer = new Sprite[6][];
 
     private bool[,] canBlast;
+    public int slidingAnims = 0;
+    public int shuffleAnims = 0;
+    private bool canPlay = true;
+    private Vector3 centerPoint;
 
     private void Awake()
     {
@@ -62,29 +66,37 @@ public class TileManager : MonoBehaviourSingleton<TileManager>
     void Start()
     {
         for (int y = 0; y < rowCount; y++)
-        {
             for (int x = 0; x < columnCount; x++)
-            {
-                tiles[x, y] = Instantiate(tilePrefab, new Vector3(x * xSize, y * ySize, 0.0f), Quaternion.identity, tileContainer.transform);
-
-                int randomColor = Random.Range(0, numColor);
-                tiles[x, y].SetSpriteAndOrder(spriteContainer[randomColor][0], y + 2);
-                tiles[x, y].SetGridCoordAndColor(x, y, (Helper.TileColor)randomColor);
-            }
-        }
+                CreateTile(x, y);
 
         //Centeralize the camera to center of the tiles
-        Vector3 middlePoint = (tiles[columnCount - 1, rowCount - 1].gameObject.transform.position + tiles[0, 0].gameObject.transform.position) / 2.0f;
-        middlePoint.z = -10.0f;
-        mainCamera.transform.position = middlePoint;
+        centerPoint = (tiles[columnCount - 1, rowCount - 1].gameObject.transform.position + tiles[0, 0].gameObject.transform.position) / 2.0f;
+        centerPoint.z = -10.0f;
+        mainCamera.transform.position = centerPoint;
+        centerPoint.z = 0.0f;
+
+        CheckAndAddBlastingTiles(0, 0, columnCount, rowCount);
+        
+    }
+
+    private void CreateTile(int x, int y)
+    {
+        tiles[x, y] = Instantiate(tilePrefab, new Vector3(x * xSize, y * ySize, 0.0f), Quaternion.identity, tileContainer.transform);
+
+        int randomColor = Random.Range(0, numColor);
+        tiles[x, y].SetSpriteAndOrder(spriteContainer[randomColor][0], y + 2);
+        tiles[x, y].SetGridCoordAndColor(x, y, (Helper.TileColor)randomColor);
+    }
 
 
-        for (int x = 0; x < columnCount; x++)
+    //Make sure all the grid of tiles has been initialized before using this function
+    private void CheckAndAddBlastingTiles(int x_start, int y_start, int x_finish, int y_finish)
+    {
+        int count = 0;
+        for (int x = x_start; x < x_finish; x++)
         {
-            for (int y = 0; y < rowCount; y++)
+            for (int y = y_start; y < y_finish; y++)
             {
-                if (canBlast[x, y])
-                    continue;
 
                 Tile left = null, right = null, up = null, down = null;
                 //Left Check 
@@ -121,33 +133,90 @@ public class TileManager : MonoBehaviourSingleton<TileManager>
                     {
                         tileGroup.AddTile(left);
                         canBlast[x - 1, y] = true;
+                        count++;
                     }
                     if (right)
                     {
                         tileGroup.AddTile(right);
                         canBlast[x + 1, y] = true;
+                        count++;
                     }
                     if (up)
                     {
                         tileGroup.AddTile(up);
                         canBlast[x, y + 1] = true;
+                        count++;
                     }
                     if (down)
                     {
                         tileGroup.AddTile(down);
                         canBlast[x, y - 1] = true;
+                        count++;
                     }
 
                     canBlast[x, y] = true;
                     tileGroup.AddTile(tiles[x, y]);
+                    count++;
                 }
             }
         }
+
+        //There is no matching tile and grid needs to be shuffled
+        if (count == 0)
+        {
+            StartShuffle();
+        }
+    }
+
+    public void StartShuffle()
+    {
+        StartCoroutine(StartShuffleAnim());
+    }
+
+    private IEnumerator StartShuffleAnim()
+    {
+        Tile[,] shuffledTiles = new Tile[columnCount, rowCount];
+
+        Debug.Log("Started");
+        for (int x = 0; x < columnCount; x++)
+        {
+            for (int y = 0; y < rowCount; y++)
+            {
+                Tile currentTile = tiles[x, y];
+
+                int newX, newY;
+                do {
+                    newX = Random.Range(0, columnCount);
+                    newY = Random.Range(0, rowCount);
+                } while (shuffledTiles[newX, newY] != null);
+
+                shuffledTiles[newX, newY] = currentTile;
+                if (currentTile.CurrentGroup != null)
+                    currentTile.CurrentGroup.DisbandGroup();
+                shuffleAnims++;
+                currentTile.ShuffleAnim(centerPoint, newX, newY, new Vector3(newX * xSize, newY * ySize, 0.0f));
+
+                yield return new WaitForSeconds(0.1f);
+            }
+        }
+
+
+        for (int x = 0; x < columnCount; x++)
+        {
+            for (int y = 0; y < rowCount; y++)
+            {
+                tiles[x, y] = shuffledTiles[x, y];
+            }
+        }
+        canBlast = new bool[columnCount, rowCount];
+
+        yield return new WaitUntil(() => shuffleAnims == 0);
+        CheckAndAddBlastingTiles(0, 0, columnCount, rowCount);
     }
 
     void Update()
     {
-        if (Input.GetMouseButtonDown(0))
+        if (Input.GetMouseButtonDown(0) && canPlay)
         {
             Debug.Log($"Clicked = {Input.mousePosition}");
             Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
@@ -160,8 +229,10 @@ public class TileManager : MonoBehaviourSingleton<TileManager>
                 int xCoord = tile.XCoord;
                 int yCoord = tile.YCoord;
 
+
                 if (canBlast[xCoord, yCoord])
                 {
+                    canPlay = false;
                     TileGroup group = tile.CurrentGroup;
                     int minY = group.MinY;
                     int minX = -1, maxX = -1;
@@ -177,29 +248,74 @@ public class TileManager : MonoBehaviourSingleton<TileManager>
                         else if (i == columnCount - 1 && countsByColumn[i] != 0)
                             maxX = i;
                     }
-                    
-                    for (int y = minY; y < rowCount; y++)
-                    {
-                        for (int x = minX; x <= maxX; x++)
-                        {
-                            canBlast[x, y] = false;
-                            if (!tiles[x, y])
-                            {
-                                tiles[x, y].RemoveFromGroup();
-                                if (y - countsByColumn[x] >= minY)
-                                {
-                                    tiles[x, y - countsByColumn[x]] = tiles[x, y];
-                                    tiles[x, y] = null;
-                                    tiles[x, y - countsByColumn[x]].SetGridCoord(x, y - countsByColumn[x]);
-                                    tiles[x, y - countsByColumn[x]].gameObject.transform.position = new Vector3(x * xSize, (y - countsByColumn[x]) * ySize, 0);
-                                }
-                            }
-                        }
-                    }
 
-                    Destroy(group);
+                    Debug.Log($"minY = {minY}, minX = {minX}, maxX = {maxX}");
+
+                    group.DestroyTiles();
+                    StartCoroutine(WaitDeathAnimation(group, minY, minX, maxX, countsByColumn));
+                } else
+                {
+                    tiles[xCoord, yCoord].DenyAnimation();
                 }
             }
         }
+    }
+
+    private IEnumerator WaitDeathAnimation(TileGroup group, int minY, int minX, int maxX, int[] countsByColumn)
+    {
+        Debug.Log("Death");
+        yield return new WaitForSeconds(0.2f);
+        Destroy(group);
+        slidingAnims = 0;
+
+
+        Debug.Log("Sliding");
+        for (int y = minY; y < rowCount; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                canBlast[x, y] = false;
+                if (tiles[x, y] != null)
+                {
+                    tiles[x, y].RemoveFromGroup();
+                    if (y - countsByColumn[x] >= minY && tiles[x, y - countsByColumn[x]] == null)
+                    {
+                        tiles[x, y - countsByColumn[x]] = tiles[x, y];
+                        tiles[x, y] = null;
+                        tiles[x, y - countsByColumn[x]].SetGridCoord(x, y - countsByColumn[x]);
+                        slidingAnims++;
+                        tiles[x, y - countsByColumn[x]].SlidingAnimation(new Vector3(x * xSize, (y - countsByColumn[x]) * ySize, 0));
+
+                    }
+                }
+            }
+        }
+        StartCoroutine(WaitSlidingAnim(countsByColumn));
+    }
+
+
+    private IEnumerator WaitSlidingAnim(int[] countsByColumn)
+    {
+        yield return new WaitUntil(() => slidingAnims == 0);
+
+        Debug.Log("Drop anim");
+        for (int x = 0; x < columnCount; x++)
+        {
+            int countAdd = countsByColumn[x];
+            for (int i = 0; i < countAdd; i++)
+            {
+                CreateTile(x, rowCount - 1 - i);
+                slidingAnims++;
+                tiles[x, rowCount - 1 - i].DropAnimation(ySize);
+            }
+        }
+        yield return new WaitUntil(() => slidingAnims == 0);
+
+        Debug.Log("Group Check");
+        for (int i = 0; i < columnCount; i++)
+            for (int j = 0; j < rowCount; j++)
+                canBlast[i, j] = false;
+        CheckAndAddBlastingTiles(0, 0, columnCount, rowCount);
+        canPlay = true;
     }
 }
