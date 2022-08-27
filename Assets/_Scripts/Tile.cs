@@ -6,25 +6,45 @@ public class Tile : MonoBehaviour
 {
     private SpriteRenderer spriteRenderer;
 
-    public int xCoord { get; private set; }
-    public int yCoord { get; private set; }
+    public int XCoord { get; private set; }
+    public int YCoord { get; private set; }
+    public Helper.TileColor TileColor { get; private set; }
+    public TileGroup CurrentGroup = null;
 
     private void Awake()
     {
         spriteRenderer = GetComponent<SpriteRenderer>();
     }
 
-
-    public void SetTileCoord(int x, int y)
+    public void SetGridCoordAndColor(int x, int y, Helper.TileColor color)
     {
-        xCoord = x;
-        yCoord = y;
+        XCoord = x;
+        YCoord = y;
+        TileColor = color;
     }
 
-    public void SetSprite(Sprite sprite, int soortingOrder)
+    public void SetGridCoord(int x, int y)
+    {
+        XCoord = x;
+        YCoord = y;
+    }
+
+    public void RemoveFromGroup()
+    {
+        CurrentGroup.RemoveTile(this);
+        CurrentGroup = null;
+    }
+
+
+    public void SetSpriteAndOrder(Sprite sprite, int soortingOrder)
     {
         spriteRenderer.sprite = sprite;
         spriteRenderer.sortingOrder = soortingOrder;
+    }
+
+    public void SetSprite(Sprite sprite)
+    {
+        spriteRenderer.sprite = sprite;
     }
 
     void Start()
